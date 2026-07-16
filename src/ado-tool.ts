@@ -420,7 +420,7 @@ export class AdoToolDispatcher {
 
 	private async resolveLatestBuildForHead(context: AdoContext, cwd?: string | undefined, signal?: AbortSignal): Promise<number> {
 		const headResult = await this.run("git", ["rev-parse", "HEAD"], { cwd, signal });
-		if (headResult.code !== 0) throw new Error("build_watch needs a buildId or an Azure DevOps checkout to auto-discover.");
+		if (headResult.code !== 0) throw new Error("build_watch could not auto-discover a build: the current directory is not a git checkout. Either pass buildId explicitly, or run from within a repository checkout. To find a build ID, read ado-build://<organization>/<project>/<repository>.");
 		const commit = headResult.stdout.trim();
 		const output = await this.run("az", [
 			"pipelines", "build", "list", ...this.baseArgs(context), "--top", "10",

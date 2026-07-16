@@ -24,6 +24,7 @@ export default function adoExtension(pi: ExtensionAPI): void {
 			project: z.string().optional().describe("Azure DevOps project; defaults from the current checkout"),
 			repository: z.string().optional().describe("Repository name or ID; defaults from the current checkout where applicable"),
 			pullRequestId: z.number().int().positive().optional().describe("Pull request ID"),
+			buildId: z.number().int().positive().optional().describe("Build ID for build_watch; omit to auto-discover the latest build for HEAD from a repository checkout. Read ado-build://<organization>/<project>/<repository> to find a build ID."),
 			title: z.string().optional().describe("Pull request title"),
 			description: z.string().optional().describe("Pull request Markdown description"),
 			sourceBranch: z.string().optional().describe("Pull request source branch"),
