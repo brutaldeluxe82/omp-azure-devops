@@ -67,7 +67,7 @@ azure_devops(op="build_watch")
 The extension requires Oh My Pi `16.5.0` or later, Azure CLI, and an authenticated `azure-devops` extension.
 
 ```sh
-omp install github:brutaldeluxe82/omp-azure-devops
+omp install github:lemongrassconsulting/omp-azure-devops
 ```
 
 For development:

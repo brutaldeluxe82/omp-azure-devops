@@ -1,5 +1,5 @@
 {
-  "name": "@brutaldeluxe82/omp-azure-devops",
+  "name": "@lemongrassconsulting/omp-azure-devops",
   "version": "0.6.2",
   "private": true,
   "description": "Generic Azure DevOps PR, review-thread, repository, build, and Code Search support for Oh My Pi",
