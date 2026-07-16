@@ -91,4 +91,34 @@ describe("AdoToolDispatcher", () => {
 		expect(result.content).toContain("- api | /src/main.go");
 		expect(result.content).toContain("- worker | /pkg/worker.go");
 	});
+
+	it("creates a PR thread through the authenticated Git REST resource", async () => {
+		const commands: string[][] = [];
+		let body: unknown;
+		const dispatcher = new AdoToolDispatcher(async (command, args) => {
+			commands.push([command, ...args]);
+			body = await Bun.file(args[args.indexOf("--in-file") + 1]).json();
+			return json({ id: 17, status: "active" });
+		});
+
+		await dispatcher.execute({ op: "pr_thread_create", organization: "example-org", project: "ExampleProject", repository: "example-repository", pullRequestId: 42, comment: "Please handle this error." });
+
+		expect(commands[0]).toEqual(expect.arrayContaining(["devops", "invoke", "--resource", "pullRequestThreads", "--http-method", "POST", "pullRequestId=42"]));
+		expect(body).toEqual({ comments: [{ parentCommentId: 0, content: "Please handle this error.", commentType: 1 }], status: 1 });
+	});
+
+	it("replies to and resolves PR threads with their explicit REST payloads", async () => {
+		const requests: Array<{ args: string[]; body: unknown }> = [];
+		const dispatcher = new AdoToolDispatcher(async (command, args) => {
+			requests.push({ args: [command, ...args], body: await Bun.file(args[args.indexOf("--in-file") + 1]).json() });
+			return json({});
+		});
+		const base = { organization: "example-org", project: "ExampleProject", repository: "example-repository", pullRequestId: 42, threadId: 17 };
+
+		await dispatcher.execute({ ...base, op: "pr_thread_reply", parentCommentId: 3, comment: "Fixed in the latest commit." });
+		await dispatcher.execute({ ...base, op: "pr_thread_update_status", threadStatus: "fixed" });
+
+		expect(requests[0]).toEqual({ args: expect.arrayContaining(["--resource", "pullRequestThreadComments", "--http-method", "POST", "threadId=17"]), body: { parentCommentId: 3, content: "Fixed in the latest commit.", commentType: 1 } });
+		expect(requests[1]).toEqual({ args: expect.arrayContaining(["--resource", "pullRequestThreads", "--http-method", "PATCH", "threadId=17"]), body: { status: 2 } });
+	});
 });

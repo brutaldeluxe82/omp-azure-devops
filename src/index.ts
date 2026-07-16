@@ -17,7 +17,7 @@ export default function adoExtension(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "azure_devops",
 		label: "Azure DevOps",
-		description: "One op-based dispatcher for Azure DevOps operations beyond reads. Pick the operation via op; each op uses a subset of the parameters. Supports PR create/update/vote/abandon/auto-complete/complete, repository create/update/delete, and cross-repository literal Code Search. Read PRs and builds with ado-pr:// and ado-build:// resources. Work-item management is intentionally unsupported.",
+		description: "One op-based dispatcher for Azure DevOps operations beyond reads. Supports PR create/update/vote/abandon/auto-complete/complete, PR thread creation/replies/status updates, repository create/update/delete, and cross-repository literal Code Search. Read PRs, threads, and builds with ado-pr:// and ado-build:// resources. Work-item management is intentionally unsupported.",
 		parameters: z.object({
 			op: z.enum(ADO_TOOL_OPS).describe("Azure DevOps operation"),
 			organization: z.string().optional().describe("Azure DevOps organization; defaults from the current checkout"),
@@ -37,6 +37,10 @@ export default function adoExtension(pi: ExtensionAPI): void {
 			mergeCommitMessage: z.string().optional().describe("Merge message for pr_complete"),
 			bypassPolicy: z.boolean().optional().describe("Bypass required policy when completing; requires bypassPolicyReason"),
 			bypassPolicyReason: z.string().optional().describe("Reason required when bypassPolicy is true"),
+			threadId: z.number().int().positive().optional().describe("Pull request thread ID for reply or status update"),
+			parentCommentId: z.number().int().positive().optional().describe("Comment ID to reply to within a pull request thread"),
+			comment: z.string().optional().describe("Initial pull request thread comment or reply text"),
+			threadStatus: z.enum(["active", "fixed", "wontFix", "closed", "byDesign", "pending"]).optional().describe("Pull request thread status for pr_thread_update_status"),
 			name: z.string().optional().describe("Repository name for repo_create or repo_update"),
 			defaultBranch: z.string().optional().describe("Default branch for repo_update"),
 			query: z.string().optional().describe("Literal text for code_search; regular expressions are unsupported"),

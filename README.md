@@ -11,6 +11,7 @@ Oh My Pi extension that adds immutable Azure DevOps PR/build resources to the bu
 | `ado-pr://<organization>/<project>/<repository>` | Active pull requests for an explicit repository. |
 | `ado-pr://<organization>/<project>/<repository>/<id>` | Pull-request detail. |
 | `ado-pr://<organization>/<project>/<repository>/<id>/changes` | Changed-file list from the latest pull-request iteration. |
+| `ado-pr://<organization>/<project>/<repository>/<id>/threads` | Visible PR review threads, including status, author, first comment, and code location. |
 
 ### Builds
 
@@ -38,6 +39,9 @@ The extension registers one `azure_devops` tool for operations beyond reads. Pic
 | `pr_abandon` | `pullRequestId` | Abandons a PR. |
 | `pr_set_auto_complete` | `pullRequestId`, `autoComplete` | Enables or disables auto-complete. |
 | `pr_complete` | `pullRequestId`, `confirm: true` | Completes a PR as a squash merge. `bypassPolicy` also requires `bypassPolicyReason`. |
+| `pr_thread_create` | `pullRequestId`, `comment` | Creates a general active review thread. |
+| `pr_thread_reply` | `pullRequestId`, `threadId`, `parentCommentId`, `comment` | Replies to a specific comment in a thread. |
+| `pr_thread_update_status` | `pullRequestId`, `threadId`, `threadStatus` | Sets thread status: `active`, `fixed`, `wontFix`, `closed`, `byDesign`, or `pending`. |
 | `repo_create` | `name` | Creates a repository. |
 | `repo_update` | `repository` plus `name` or `defaultBranch` | Renames a repository or changes its default branch. |
 | `repo_delete` | `repository`, `confirm: true` | Deletes a repository. |
@@ -49,6 +53,10 @@ The extension registers one `azure_devops` tool for operations beyond reads. Pic
 azure_devops(op="code_search", project="ExampleProject", query="ExampleSymbol", limit=100)
 azure_devops(op="pr_create", repository="example-repository", sourceBranch="feature/example", title="feat: improve retries")
 azure_devops(op="pr_complete", pullRequestId=12345, confirm=true, deleteSourceBranch=true)
+azure_devops(op="pr_thread_create", pullRequestId=12345, comment="Please add an error-path test.")
+azure_devops(op="pr_thread_reply", pullRequestId=12345, threadId=17, parentCommentId=1, comment="Added in the latest commit.")
+azure_devops(op="pr_thread_update_status", pullRequestId=12345, threadId=17, threadStatus="fixed")
+
 ```
 
 ## Install
@@ -71,6 +79,7 @@ Restart Oh My Pi after installing. Resource reads and the `azure_devops` tool ar
 ```text
 read ado-pr://example-org/ExampleProject/example-repository/12345
 read ado-pr://example-org/ExampleProject/example-repository/12345/changes
+read ado-pr://example-org/ExampleProject/example-repository/12345/threads
 read ado-build://example-org/ExampleProject/67890
 read ado-build://example-org/ExampleProject/67890/timeline
 read ado-build://example-org/ExampleProject/67890/logs/35

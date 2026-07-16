@@ -1,3 +1,5 @@
+import { unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parseAdoRemote, type AdoRepository, type CommandRunner, bunCommandRunner } from "./ado-pr-protocol";
 
@@ -8,6 +10,9 @@ export const ADO_TOOL_OPS = [
 	"pr_abandon",
 	"pr_set_auto_complete",
 	"pr_complete",
+	"pr_thread_create",
+	"pr_thread_reply",
+	"pr_thread_update_status",
 	"repo_create",
 	"repo_update",
 	"repo_delete",
@@ -35,6 +40,10 @@ export interface AdoToolInput {
 	mergeCommitMessage?: string;
 	bypassPolicy?: boolean;
 	bypassPolicyReason?: string;
+	threadId?: number;
+	parentCommentId?: number;
+	comment?: string;
+	threadStatus?: "active" | "fixed" | "wontFix" | "closed" | "byDesign" | "pending";
 	name?: string;
 	defaultBranch?: string;
 	query?: string;
@@ -92,6 +101,21 @@ interface SpawnedProcess {
 const CODE_SEARCH_LIMIT_DEFAULT = 100;
 const CODE_SEARCH_LIMIT_MAX = 1_000;
 
+
+const THREAD_STATUS_CODES = {
+	active: 1,
+	fixed: 2,
+	wontFix: 3,
+	closed: 4,
+	byDesign: 5,
+	pending: 6,
+} as const;
+
+type ThreadMutationOp = "pr_thread_create" | "pr_thread_reply" | "pr_thread_update_status";
+
+function isThreadMutation(op: AdoToolOp): op is ThreadMutationOp {
+	return op === "pr_thread_create" || op === "pr_thread_reply" || op === "pr_thread_update_status";
+}
 const CODE_SEARCH_SCRIPT = String.raw`
 import json
 import os
@@ -208,6 +232,7 @@ export class AdoToolDispatcher {
 		const requiresRepository = input.op !== "repo_create" && input.op !== "code_search";
 		const context = await this.resolveContext(input, requiresRepository, cwd, signal);
 		if (input.op === "code_search") return this.codeSearch(input, context, signal);
+		if (isThreadMutation(input.op)) return this.mutateThread(input, context, cwd, signal);
 		const args = this.operationArgs(input, context);
 		const result = await this.run("az", args, { cwd, signal });
 		if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `Azure DevOps ${input.op} failed.`);
@@ -277,6 +302,10 @@ export class AdoToolDispatcher {
 				addString(args, "--bypass-policy-reason", input.bypassPolicyReason);
 				return args;
 			}
+			case "pr_thread_create":
+			case "pr_thread_reply":
+			case "pr_thread_update_status":
+				throw new Error("PR thread mutations are dispatched through Azure DevOps REST.");
 			case "repo_create":
 				return ["repos", "create", "--name", requireNonBlank(input.name, "name"), ...base];
 			case "repo_update": {
@@ -292,6 +321,56 @@ export class AdoToolDispatcher {
 			case "code_search":
 				throw new Error("code_search does not invoke Azure CLI repository operations.");
 		}
+	}
+
+	private async mutateThread(
+		input: AdoToolInput,
+		context: AdoContext,
+		cwd?: string,
+		signal?: AbortSignal,
+	): Promise<AdoToolResult> {
+		const pullRequestId = positiveInteger(input.pullRequestId, "pullRequestId");
+		const threadId = input.op === "pr_thread_create" ? undefined : positiveInteger(input.threadId, "threadId");
+		const bodyPath = join(tmpdir(), `omp-azure-devops-${crypto.randomUUID()}.json`);
+		await Bun.write(bodyPath, JSON.stringify(this.threadBody(input)));
+		try {
+			const resource = input.op === "pr_thread_reply" ? "pullRequestThreadComments" : "pullRequestThreads";
+			const routeParameters = [
+				`project=${context.project}`,
+				`repositoryId=${requireNonBlank(context.repository, "repository")}`,
+				`pullRequestId=${pullRequestId}`,
+				...(threadId === undefined ? [] : [`threadId=${threadId}`]),
+			];
+			const result = await this.run("az", [
+				"devops", "invoke", "--area", "git", "--resource", resource,
+				"--org", `https://dev.azure.com/${context.organization}`, "--api-version", "7.1",
+				"--http-method", input.op === "pr_thread_update_status" ? "PATCH" : "POST",
+				"--route-parameters", ...routeParameters, "--in-file", bodyPath, "--output", "json",
+			], { cwd, signal });
+			if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `Azure DevOps ${input.op} failed.`);
+			return {
+				content: this.successMessage(input.op, result.stdout),
+				details: { op: input.op, organization: context.organization, project: context.project, repository: context.repository },
+			};
+		} finally {
+			await unlink(bodyPath).catch(() => undefined);
+		}
+	}
+
+	private threadBody(input: AdoToolInput): object {
+		switch (input.op) {
+			case "pr_thread_create":
+				return { comments: [{ parentCommentId: 0, content: requireNonBlank(input.comment, "comment"), commentType: 1 }], status: THREAD_STATUS_CODES.active };
+			case "pr_thread_reply":
+				return { parentCommentId: positiveInteger(input.parentCommentId, "parentCommentId"), content: requireNonBlank(input.comment, "comment"), commentType: 1 };
+			case "pr_thread_update_status": {
+				const status = requireNonBlank(input.threadStatus, "threadStatus") as keyof typeof THREAD_STATUS_CODES;
+				const statusCode = THREAD_STATUS_CODES[status];
+				if (statusCode === undefined) throw new Error("threadStatus must be active, fixed, wontFix, closed, byDesign, or pending.");
+				return { status: statusCode };
+			}
+		}
+		throw new Error("Unsupported PR thread operation.");
 	}
 
 	private async codeSearch(input: AdoToolInput, context: AdoContext, signal?: AbortSignal): Promise<AdoToolResult> {

@@ -45,6 +45,15 @@ describe("ado-pr:// parser", () => {
 		expect(() => parseAdoPrUrl(internalUrl("ado-pr://example-org/ExampleProject/example-repository/33328/diff"))).toThrow("sub-path");
 		expect(() => parseAdoPrUrl(internalUrl("ado-pr://example-org/ExampleProject/example-repository?limit=0"))).toThrow("list limit");
 	});
+
+	it("accepts contextual and fully-qualified thread paths", () => {
+		expect(parseAdoPrUrl(internalUrl("ado-pr://33328/threads"))).toEqual({ kind: "threads", pullRequestId: 33328 });
+		expect(parseAdoPrUrl(internalUrl("ado-pr://example-org/ExampleProject/example-repository/33328/threads"))).toEqual({
+			kind: "threads",
+			repository: { organization: "example-org", project: "ExampleProject", repository: "example-repository" },
+			pullRequestId: 33328,
+		});
+	});
 });
 
 describe("Azure DevOps remote parsing", () => {
@@ -105,5 +114,19 @@ describe("AdoPrProtocolHandler", () => {
 		expect(changesCall).toBe(2);
 		expect(result.content).toContain("[edit] /go.mod");
 		expect(result.content).toContain("[add] /vuln-skip-check.txt");
+	});
+
+	it("renders visible PR threads through the authenticated Git REST resource", async () => {
+		const commands: string[][] = [];
+		const handler = new AdoPrProtocolHandler(async (command, args) => {
+			commands.push([command, ...args]);
+			return json({ value: [{ id: 17, status: "active", threadContext: { filePath: "/src/app.ts", rightFileStart: { line: 42 } }, comments: [{ id: 1, content: "Handle the error.", author: { displayName: "Example Reviewer" } }] }] });
+		});
+
+		const result = await handler.resolve(internalUrl("ado-pr://example-org/ExampleProject/example-repository/33328/threads"));
+
+		expect(commands[0]).toEqual(expect.arrayContaining(["devops", "invoke", "--resource", "pullRequestThreads", "--http-method", "GET", "pullRequestId=33328"]));
+		expect(result.content).toContain("[active] thread #17 at /src/app.ts:42");
+		expect(result.content).toContain("@Example Reviewer: Handle the error.");
 	});
 });

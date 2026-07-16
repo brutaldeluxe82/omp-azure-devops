@@ -31,7 +31,8 @@ export type CommandRunner = (
 type ParsedUrl =
 	| { kind: "list"; repository?: AdoRepository; limit: number }
 	| { kind: "single"; repository?: AdoRepository; pullRequestId: number }
-	| { kind: "changes"; repository?: AdoRepository; pullRequestId: number };
+	| { kind: "changes"; repository?: AdoRepository; pullRequestId: number }
+	| { kind: "threads"; repository?: AdoRepository; pullRequestId: number };
 
 interface PullRequest {
 	pullRequestId?: number;
@@ -58,6 +59,23 @@ interface ChangesResponse {
 		item?: { path?: string };
 	}>;
 	nextSkip?: number | null;
+}
+
+interface PullRequestThread {
+	id?: number;
+	status?: string;
+	isDeleted?: boolean;
+	threadContext?: { filePath?: string; rightFileStart?: { line?: number } };
+	comments?: Array<{
+		id?: number;
+		content?: string;
+		isDeleted?: boolean;
+		author?: { displayName?: string; uniqueName?: string };
+	}>;
+}
+
+interface ThreadsResponse {
+	value?: PullRequestThread[];
 }
 
 function displayRef(ref: string | undefined): string {
@@ -100,29 +118,30 @@ export function parseAdoPrUrl(url: InternalUrl): ParsedUrl {
 	const stripped = rawPath.startsWith("/") ? rawPath.slice(1) : rawPath;
 	const parts = stripped === "" ? [] : stripped.split("/").map(part => decodeSegment(part, scheme));
 
-	// ado-pr:// and ado-pr://123 resolve the repository from the caller's cwd.
+	// ado-pr:// and ado-pr://<id> resolve the repository from the caller's cwd.
 	if (!host && parts.length === 0) return { kind: "list", limit: parseLimit(url) };
-	if (host && parts.length === 0) {
+	if (host && (parts.length === 0 || parts.length === 1)) {
 		const pullRequestId = parsePositiveInt(host);
-		if (pullRequestId === undefined) {
-			throw new Error("Invalid ado-pr:// URL. Use ado-pr://<number> or ado-pr://<organization>/<project>/<repository>[/<number>[/changes]].");
+		if (pullRequestId === undefined || (parts.length === 1 && parts[0] !== "changes" && parts[0] !== "threads")) {
+			throw new Error("Invalid ado-pr:// URL. Use ado-pr://<number>[/changes|threads] or ado-pr://<organization>/<project>/<repository>[/<number>[/changes|threads]].");
 		}
-		return { kind: "single", pullRequestId };
+		if (parts.length === 0) return { kind: "single", pullRequestId };
+		return { kind: parts[0] as "changes" | "threads", pullRequestId };
 	}
 
 	// Fully-qualified paths avoid ambiguity across Azure DevOps organizations.
 	if (!host || parts.length < 2 || parts.length > 4) {
-		throw new Error("Invalid ado-pr:// URL. Use ado-pr://<number> or ado-pr://<organization>/<project>/<repository>[/<number>[/changes]].");
+		throw new Error("Invalid ado-pr:// URL. Use ado-pr://<number>[/changes|threads] or ado-pr://<organization>/<project>/<repository>[/<number>[/changes|threads]].");
 	}
 	const repository = { organization: decodeSegment(host, scheme), project: parts[0], repository: parts[1] };
 	if (parts.length === 2) return { kind: "list", repository, limit: parseLimit(url) };
 	const pullRequestId = parsePositiveInt(parts[2]);
 	if (pullRequestId === undefined) throw new Error(`Invalid ado-pr:// pull request number '${parts[2]}'.`);
 	if (parts.length === 3) return { kind: "single", repository, pullRequestId };
-	if (parts[3] !== "changes") {
-		throw new Error("Invalid ado-pr:// sub-path. Use ado-pr://<organization>/<project>/<repository>/<number>/changes.");
+	if (parts[3] !== "changes" && parts[3] !== "threads") {
+		throw new Error("Invalid ado-pr:// sub-path. Use ado-pr://<organization>/<project>/<repository>/<number>/changes or /threads.");
 	}
-	return { kind: "changes", repository, pullRequestId };
+	return { kind: parts[3], repository, pullRequestId };
 }
 
 /** Derive an Azure DevOps repository identity from HTTPS or SSH origin URLs. */
@@ -182,6 +201,8 @@ export class AdoPrProtocolHandler implements ProtocolHandler {
 				return this.single(repository, parsed.pullRequestId, url, context?.signal);
 			case "changes":
 				return this.changes(repository, parsed.pullRequestId, url, context?.signal);
+			case "threads":
+				return this.threads(repository, parsed.pullRequestId, url, context?.signal);
 		}
 	}
 
@@ -268,6 +289,7 @@ export class AdoPrProtocolHandler implements ProtocolHandler {
 			"",
 			"## Resources",
 			`- Changed files: ${canonical}/changes`,
+			`- Threads: ${canonical}/threads`,
 		];
 		return { url: url.href, content: lines.join("\n"), contentType: "text/markdown" };
 	}
@@ -319,6 +341,38 @@ export class AdoPrProtocolHandler implements ProtocolHandler {
 		return {
 			url: url.href,
 			content: `# Changed files — PR #${pullRequestId}\n\n${entries.length === 0 ? "No changed files." : entries.join("\n")}\n\nSource: ${canonical}`,
+			contentType: "text/markdown",
+		};
+	}
+
+	private async threads(
+		repository: AdoRepository,
+		pullRequestId: number,
+		url: InternalUrl,
+		signal?: AbortSignal,
+	): Promise<InternalResource> {
+		const output = await this.invokeAz(
+			[
+				"devops", "invoke", "--area", "git", "--resource", "pullRequestThreads",
+				"--org", `https://dev.azure.com/${repository.organization}`, "--api-version", "7.1", "--http-method", "GET",
+				"--route-parameters", `project=${repository.project}`, `repositoryId=${repository.repository}`, `pullRequestId=${pullRequestId}`,
+			],
+			repository,
+			signal,
+		);
+		const parsed = parseJson<ThreadsResponse | PullRequestThread[]>(output, "Azure DevOps pull-request threads endpoint");
+		const threads = Array.isArray(parsed) ? parsed : parsed.value ?? [];
+		const entries = threads.filter(thread => !thread.isDeleted).map(thread => {
+			const comment = thread.comments?.find(candidate => !candidate.isDeleted);
+			const author = comment?.author?.displayName ?? comment?.author?.uniqueName ?? "?";
+			const location = thread.threadContext?.filePath
+				? ` at ${thread.threadContext.filePath}${thread.threadContext.rightFileStart?.line ? `:${thread.threadContext.rightFileStart.line}` : ""}`
+				: "";
+			return `- [${thread.status ?? "unknown"}] thread #${thread.id ?? "?"}${location}\n  @${author}: ${comment?.content ?? "(no visible comment)"}`;
+		});
+		return {
+			url: url.href,
+			content: `# PR threads — #${pullRequestId}\n\n${entries.length === 0 ? "No visible threads." : entries.join("\n")}`,
 			contentType: "text/markdown",
 		};
 	}
