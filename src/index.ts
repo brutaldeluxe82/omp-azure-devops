@@ -17,7 +17,7 @@ export default function adoExtension(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "azure_devops",
 		label: "Azure DevOps",
-		description: "One op-based dispatcher for Azure DevOps operations beyond reads. Supports PR create/update/vote/abandon/auto-complete/complete, PR thread management, build watching, repository create/update/delete, and cross-repository literal Code Search. Read PRs, threads, and builds with ado-pr:// and ado-build:// resources. Work-item management is intentionally unsupported.",
+		description: "Azure DevOps mutations: PR create/update/vote/abandon/auto-complete/complete, PR thread management, build watching, repository create/update/delete, and literal Code Search. For reads, use ado-pr://<id>, ado-pr://<id>/changes, ado-pr://<id>/threads, and ado-build://<id> URIs — not this tool. Convert Azure DevOps web URLs to ado-pr://<organization>/<project>/<repository>/<id> manually. Work-item management is unsupported.",
 		parameters: z.object({
 			op: z.enum(ADO_TOOL_OPS).describe("Azure DevOps operation"),
 			organization: z.string().optional().describe("Azure DevOps organization; defaults from the current checkout"),

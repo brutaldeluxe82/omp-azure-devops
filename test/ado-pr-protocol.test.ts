@@ -54,6 +54,14 @@ describe("ado-pr:// parser", () => {
 			pullRequestId: 33328,
 		});
 	});
+
+	it("accepts fully-qualified PRs, changes, and threads with all four segments", () => {
+		expect(parseAdoPrUrl(internalUrl("ado-pr://example-org/ExampleProject/example-repository/33328"))).toEqual({
+			kind: "single",
+			repository: { organization: "example-org", project: "ExampleProject", repository: "example-repository" },
+			pullRequestId: 33328,
+		});
+	});
 });
 
 describe("Azure DevOps remote parsing", () => {
