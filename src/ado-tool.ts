@@ -13,6 +13,7 @@ export const ADO_TOOL_OPS = [
 	"pr_thread_create",
 	"pr_thread_reply",
 	"pr_thread_update_status",
+	"build_watch",
 	"repo_create",
 	"repo_update",
 	"repo_delete",
@@ -27,6 +28,7 @@ export interface AdoToolInput {
 	project?: string;
 	repository?: string;
 	pullRequestId?: number;
+	buildId?: number;
 	title?: string;
 	description?: string;
 	sourceBranch?: string;
@@ -90,6 +92,15 @@ interface AdoContext {
 	organization: string;
 	project: string;
 	repository?: string;
+}
+
+interface TimelineRecord {
+	id?: string;
+	type?: string;
+	name?: string;
+	state?: string;
+	result?: string | null;
+	log?: { id?: number };
 }
 
 interface SpawnedProcess {
@@ -226,13 +237,15 @@ export class AdoToolDispatcher {
 	constructor(
 		private readonly run: CommandRunner = bunCommandRunner,
 		private readonly searchCode: CodeSearchRunner = bunCodeSearchRunner,
+		private readonly pollIntervalMs: number = 10_000,
 	) {}
 
 	async execute(input: AdoToolInput, cwd?: string, signal?: AbortSignal): Promise<AdoToolResult> {
-		const requiresRepository = input.op !== "repo_create" && input.op !== "code_search";
+		const requiresRepository = input.op !== "repo_create" && input.op !== "code_search" && input.op !== "build_watch";
 		const context = await this.resolveContext(input, requiresRepository, cwd, signal);
 		if (input.op === "code_search") return this.codeSearch(input, context, signal);
 		if (isThreadMutation(input.op)) return this.mutateThread(input, context, cwd, signal);
+		if (input.op === "build_watch") return this.watchBuild(input, context, cwd, signal);
 		const args = this.operationArgs(input, context);
 		const result = await this.run("az", args, { cwd, signal });
 		if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `Azure DevOps ${input.op} failed.`);
@@ -320,6 +333,8 @@ export class AdoToolDispatcher {
 				return ["repos", "delete", "--id", requireNonBlank(context.repository, "repository"), "--yes", ...base];
 			case "code_search":
 				throw new Error("code_search does not invoke Azure CLI repository operations.");
+			case "build_watch":
+				throw new Error("build_watch is dispatched through polling.");
 		}
 	}
 
@@ -364,13 +379,101 @@ export class AdoToolDispatcher {
 			case "pr_thread_reply":
 				return { parentCommentId: positiveInteger(input.parentCommentId, "parentCommentId"), content: requireNonBlank(input.comment, "comment"), commentType: 1 };
 			case "pr_thread_update_status": {
-				const status = requireNonBlank(input.threadStatus, "threadStatus") as keyof typeof THREAD_STATUS_CODES;
-				const statusCode = THREAD_STATUS_CODES[status];
-				if (statusCode === undefined) throw new Error("threadStatus must be active, fixed, wontFix, closed, byDesign, or pending.");
+				if (!input.threadStatus) throw new Error("threadStatus is required for pr_thread_update_status.");
+				const statusCode = THREAD_STATUS_CODES[input.threadStatus];
+				if (statusCode === undefined) throw new Error(`Unsupported threadStatus '${input.threadStatus}'. Use active, fixed, wontFix, closed, byDesign, or pending.`);
 				return { status: statusCode };
 			}
 		}
 		throw new Error("Unsupported PR thread operation.");
+	}
+
+	private async watchBuild(
+		input: AdoToolInput,
+		context: AdoContext,
+		cwd?: string | undefined,
+		signal?: AbortSignal,
+	): Promise<AdoToolResult> {
+		const buildId = input.buildId ?? await this.resolveLatestBuildForHead(context, cwd, signal);
+		const build = await this.pollBuildUntilTerminal(context, buildId, signal);
+		if (build.result === "succeeded" || build.result === "partiallySucceeded") {
+			return {
+				content: `Azure DevOps build #${buildId} ${build.result}.\n\nPipeline: ${build.definition?.name ?? "?"}\nBranch: ${build.sourceBranch ?? "?"}`,
+				details: { op: "build_watch", organization: context.organization, project: context.project, repository: context.repository },
+			};
+		}
+		const failedTimelineRecord = await this.findFirstFailedTask(context, buildId, signal);
+		if (!failedTimelineRecord?.log?.id) {
+			return {
+				content: `Azure DevOps build #${buildId} ${build.result ?? "failed"} — no failed task log available.\n\nPipeline: ${build.definition?.name ?? "?"}\nBranch: ${build.sourceBranch ?? "?"}`,
+				details: { op: "build_watch", organization: context.organization, project: context.project, repository: context.repository },
+			};
+		}
+		const logLines = await this.fetchBuildLogLines(context, buildId, failedTimelineRecord.log.id, signal);
+		const tail = logLines.slice(-50);
+		const logPath = await this.saveFailedTaskLog(context, buildId, failedTimelineRecord, logLines);
+		return {
+			content: `Azure DevOps build #${buildId} ${build.result ?? "failed"}.\n\nFailed task: ${failedTimelineRecord.name ?? "?"} (log #${failedTimelineRecord.log.id})\n\nLast ${tail.length} log lines:\n\n${tail.join("\n")}\n\nFull log saved: ${logPath}`,
+			details: { op: "build_watch", organization: context.organization, project: context.project, repository: context.repository },
+		};
+	}
+
+	private async resolveLatestBuildForHead(context: AdoContext, cwd?: string | undefined, signal?: AbortSignal): Promise<number> {
+		const headResult = await this.run("git", ["rev-parse", "HEAD"], { cwd, signal });
+		if (headResult.code !== 0) throw new Error("build_watch needs a buildId or an Azure DevOps checkout to auto-discover.");
+		const commit = headResult.stdout.trim();
+		const output = await this.run("az", [
+			"pipelines", "build", "list", ...this.baseArgs(context), "--top", "10",
+			"--query-parameters", `repositoryType=TfsGit`, `queryOrder=queueTimeDescending`,
+			"--output", "json",
+		], { signal });
+		if (output.code !== 0) throw new Error(output.stderr.trim() || output.stdout.trim() || "Failed to list builds.");
+		const builds = parseJson<Array<{ id?: number; sourceVersion?: string }>>(output.stdout, "az pipelines build list");
+		const match = builds.find(candidate => candidate.sourceVersion?.startsWith(commit.slice(0, 8)));
+		if (!match?.id) throw new Error(`No build found for HEAD commit ${commit}.`);
+		return match.id;
+	}
+
+	private async pollBuildUntilTerminal(context: AdoContext, buildId: number, signal?: AbortSignal): Promise<{ result?: string | null; definition?: { name?: string }; sourceBranch?: string }> {
+		const MAX_POLL_DURATION_MS = 1_800_000;
+		const deadline = Date.now() + MAX_POLL_DURATION_MS;
+		for (;;) {
+			const output = await this.run("az", ["pipelines", "build", "show", "--id", String(buildId), ...this.baseArgs(context), "--output", "json"], { signal });
+			if (output.code !== 0) throw new Error(output.stderr.trim() || output.stdout.trim() || `Failed to check build #${buildId}.`);
+			const build = parseJson<{ status?: string; result?: string | null; definition?: { name?: string }; sourceBranch?: string }>(output.stdout, "az pipelines build show");
+			if (build.status === "completed") return build;
+			if (Date.now() >= deadline) throw new Error(`build_watch timed out after ${MAX_POLL_DURATION_MS / 60_000} minutes waiting for build #${buildId}.`);
+			await Bun.sleep(this.pollIntervalMs);
+		}
+	}
+
+	private async findFirstFailedTask(context: AdoContext, buildId: number, signal?: AbortSignal): Promise<TimelineRecord | null> {
+		const output = await this.run("az", [
+			"devops", "invoke", "--area", "build", "--resource", "timeline",
+			"--route-parameters", `project=${context.project}`, `buildId=${buildId}`,
+			"--api-version", "7.1", "--http-method", "GET", "--org", `https://dev.azure.com/${context.organization}`,
+		], { signal });
+		if (output.code !== 0) throw new Error(output.stderr.trim() || output.stdout.trim() || "Failed to fetch build timeline.");
+		const timeline = parseJson<{ records?: TimelineRecord[] }>(output.stdout, "Azure DevOps build timeline endpoint");
+		const records = (timeline.records ?? []).filter(record => record.type === "Task" && record.result && record.result !== "succeeded" && record.result !== "skipped");
+		return records[0] ?? null;
+	}
+
+	private async fetchBuildLogLines(context: AdoContext, buildId: number, logId: number, signal?: AbortSignal): Promise<string[]> {
+		const output = await this.run("az", [
+			"devops", "invoke", "--area", "build", "--resource", "logs",
+			"--route-parameters", `project=${context.project}`, `buildId=${buildId}`, `logId=${logId}`,
+			"--api-version", "7.1", "--http-method", "GET", "--org", `https://dev.azure.com/${context.organization}`,
+		], { signal });
+		if (output.code !== 0) return [`(Failed to fetch log #${logId}: ${output.stderr.trim()})`];
+		const logResponse = parseJson<{ value?: string[] }>(output.stdout, "Azure DevOps build log endpoint");
+		return logResponse.value ?? [];
+	}
+
+	private async saveFailedTaskLog(context: AdoContext, buildId: number, record: TimelineRecord, lines: string[]): Promise<string> {
+		const logPath = join(tmpdir(), `omp-azure-devops-build-${buildId}-log-${record.log?.id ?? "unknown"}.log`);
+		await Bun.write(logPath, lines.join("\n"));
+		return logPath;
 	}
 
 	private async codeSearch(input: AdoToolInput, context: AdoContext, signal?: AbortSignal): Promise<AdoToolResult> {

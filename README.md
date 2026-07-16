@@ -46,6 +46,7 @@ The extension registers one `azure_devops` tool for operations beyond reads. Pic
 | `repo_update` | `repository` plus `name` or `defaultBranch` | Renames a repository or changes its default branch. |
 | `repo_delete` | `repository`, `confirm: true` | Deletes a repository. |
 | `code_search` | `query` | Searches literal text across every repository in a project; optional `repository`, `path`, `branch`, `limit`, and `skip` filters. |
+| `build_watch` | *none (auto-discover)* or `buildId` | Polls a build until terminal; fast-fails on the first failed task, tails its last 50 log lines inline, and saves the full failed-task log to a temp file. Omit `buildId` to auto-discover the latest build for the current HEAD commit. |
 
 `organization` and `project` derive from the current Azure DevOps checkout when omitted. Outside such a checkout, provide both explicitly. `repository` also defaults to the checkout where applicable. Code Search returns up to 1,000 matches per call and does not support regular expressions. Work-item operations are deliberately excluded; manage work in Jira.
 
@@ -56,6 +57,8 @@ azure_devops(op="pr_complete", pullRequestId=12345, confirm=true, deleteSourceBr
 azure_devops(op="pr_thread_create", pullRequestId=12345, comment="Please add an error-path test.")
 azure_devops(op="pr_thread_reply", pullRequestId=12345, threadId=17, parentCommentId=1, comment="Added in the latest commit.")
 azure_devops(op="pr_thread_update_status", pullRequestId=12345, threadId=17, threadStatus="fixed")
+azure_devops(op="build_watch", buildId=67890)
+azure_devops(op="build_watch")
 
 ```
 

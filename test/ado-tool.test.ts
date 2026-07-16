@@ -121,4 +121,50 @@ describe("AdoToolDispatcher", () => {
 		expect(requests[0]).toEqual({ args: expect.arrayContaining(["--resource", "pullRequestThreadComments", "--http-method", "POST", "threadId=17"]), body: { parentCommentId: 3, content: "Fixed in the latest commit.", commentType: 1 } });
 		expect(requests[1]).toEqual({ args: expect.arrayContaining(["--resource", "pullRequestThreads", "--http-method", "PATCH", "threadId=17"]), body: { status: 2 } });
 	});
+
+	it("watches a known build, fast-fails on the first failed task, and tails its log", async () => {
+		const calls: string[][] = [];
+		let buildShowCall = 0;
+		const dispatcher = new AdoToolDispatcher(async (command, args) => {
+			calls.push([command, ...args]);
+			if (args.includes("show") && args.includes("--id")) {
+				buildShowCall += 1;
+				// First poll: inProgress, second poll: completed/failed
+				return buildShowCall === 1
+					? json({ status: "inProgress", result: null, definition: { name: "ci-pipeline" }, sourceBranch: "refs/heads/main" })
+					: json({ status: "completed", result: "failed", definition: { name: "ci-pipeline" }, sourceBranch: "refs/heads/main" });
+			}
+			if (args.includes("timeline")) {
+				return json({ records: [
+					{ id: "stage-1", type: "Stage", name: "Build Stage", state: "completed", result: "succeeded" },
+					{ id: "task-5", type: "Task", name: "Run Tests", state: "completed", result: "failed", log: { id: 42 } },
+				] });
+			}
+			if (args.includes("logs")) {
+				return json({ value: ["line 1: starting", "line 2: running", "line 3: error: tests failed"] });
+			}
+			return json({});
+		}, async () => ({ count: 0, results: [] }), 50);
+
+		const result = await dispatcher.execute({ op: "build_watch", organization: "example-org", project: "ExampleProject", buildId: 999 });
+
+		expect(buildShowCall).toBe(2);
+		expect(result.content).toContain("build #999 failed");
+		expect(result.content).toContain("Failed task: Run Tests (log #42)");
+		expect(result.content).toContain("error: tests failed");
+		expect(result.content).toContain("Full log saved:");
+		expect(result.details.op).toBe("build_watch");
+	});
+
+	it("watches a successful build and returns a concise summary without log tailing", async () => {
+		const dispatcher = new AdoToolDispatcher(async (_command, args) => {
+			if (args.includes("show")) return json({ status: "completed", result: "succeeded", definition: { name: "ci-pipeline" }, sourceBranch: "refs/heads/main" });
+			return json({});
+		}, async () => ({ count: 0, results: [] }), 50);
+
+		const result = await dispatcher.execute({ op: "build_watch", organization: "example-org", project: "ExampleProject", buildId: 888 });
+
+		expect(result.content).toContain("build #888 succeeded");
+		expect(result.content).not.toContain("Full log");
+	});
 });
