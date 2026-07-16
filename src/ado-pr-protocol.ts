@@ -193,7 +193,7 @@ export class AdoPrProtocolHandler implements ProtocolHandler {
 
 	async resolve(url: InternalUrl, context?: ResolveContext): Promise<InternalResource> {
 		const parsed = parseAdoPrUrl(url);
-		const repository = parsed.repository ?? (await this.resolveDefaultRepository(context));
+		const repository = parsed.repository ?? (await this.resolveDefaultRepository(context, parsed));
 		switch (parsed.kind) {
 			case "list":
 				return this.list(repository, parsed.limit, url);
@@ -206,17 +206,19 @@ export class AdoPrProtocolHandler implements ProtocolHandler {
 		}
 	}
 
-	private async resolveDefaultRepository(context?: ResolveContext): Promise<AdoRepository> {
+	private async resolveDefaultRepository(context: ResolveContext | undefined, parsed: ParsedUrl): Promise<AdoRepository> {
 		const result = await this.run("git", ["config", "--get", "remote.origin.url"], {
 			cwd: context?.cwd,
 			signal: context?.signal,
 		});
 		if (result.code !== 0) {
-			throw new Error("ado-pr:// could not resolve a default Azure DevOps repository. Use a fully-qualified ado-pr://<organization>/<project>/<repository>/... URI.");
+			const prSuffix = parsed.kind !== "list" && parsed.pullRequestId ? `/${parsed.pullRequestId}` : "";
+			throw new Error(`ado-pr:// could not resolve a default Azure DevOps repository from the current directory. Use a fully-qualified URI: ado-pr://<organization>/<project>/<repository>${prSuffix}.`);
 		}
 		const repository = parseAdoRemote(result.stdout.trim());
 		if (!repository) {
-			throw new Error("ado-pr:// current origin is not an Azure DevOps remote. Use a fully-qualified ado-pr://<organization>/<project>/<repository>/... URI.");
+			const prSuffix = parsed.kind !== "list" && parsed.pullRequestId ? `/${parsed.pullRequestId}` : "";
+			throw new Error(`ado-pr:// current origin is not an Azure DevOps remote. Use a fully-qualified URI: ado-pr://<organization>/<project>/<repository>${prSuffix}.`);
 		}
 		return repository;
 	}

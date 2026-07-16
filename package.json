@@ -1,6 +1,6 @@
 {
   "name": "@brutaldeluxe82/omp-azure-devops",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "description": "Generic Azure DevOps PR, review-thread, repository, build, and Code Search support for Oh My Pi",
   "license": "MIT",

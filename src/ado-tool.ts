@@ -292,7 +292,7 @@ export class AdoToolDispatcher {
 			}
 			case "pr_update": {
 				const args = ["repos", "pr", "update", "--id", String(positiveInteger(input.pullRequestId, "pullRequestId")), ...base];
-				if (input.title === undefined && input.description === undefined && input.draft === undefined) throw new Error("pr_update requires title, description, or draft.");
+			if (input.title === undefined && input.description === undefined && input.draft === undefined) throw new Error("pr_update requires at least one of: title, description, or draft. Read ado-pr://<pullRequestId> to inspect the current PR state before updating.");
 				addString(args, "--title", input.title);
 				addString(args, "--description", input.description);
 				addBoolean(args, "--draft", input.draft);
