@@ -278,43 +278,47 @@ export class AdoToolDispatcher {
 		return ["--org", `https://dev.azure.com/${context.organization}`, "--project", context.project, "--output", "json"];
 	}
 
+	private prBaseArgs(context: AdoContext): string[] {
+		return ["--org", `https://dev.azure.com/${context.organization}`, "--output", "json"];
+	}
+
 	private operationArgs(input: AdoToolInput, context: AdoContext): string[] {
 		const base = this.baseArgs(context);
 		switch (input.op) {
-			case "pr_create": {
-				const args = ["repos", "pr", "create", "--repository", requireNonBlank(context.repository, "repository"), "--source-branch", requireNonBlank(input.sourceBranch, "sourceBranch"), "--title", requireNonBlank(input.title, "title"), "--squash", "true", ...base];
-				addString(args, "--target-branch", input.targetBranch);
-				addString(args, "--description", input.description);
-				addBoolean(args, "--draft", input.draft);
-				if (input.reviewers?.length) args.push("--required-reviewers", ...input.reviewers);
-				if (input.optionalReviewers?.length) args.push("--optional-reviewers", ...input.optionalReviewers);
-				return args;
-			}
-			case "pr_update": {
-				const args = ["repos", "pr", "update", "--id", String(positiveInteger(input.pullRequestId, "pullRequestId")), ...base];
+		case "pr_create": {
+			const args = ["repos", "pr", "create", "--repository", requireNonBlank(context.repository, "repository"), "--source-branch", requireNonBlank(input.sourceBranch, "sourceBranch"), "--title", requireNonBlank(input.title, "title"), "--squash", "true", ...base];
+			addString(args, "--target-branch", input.targetBranch);
+			addString(args, "--description", input.description);
+			addBoolean(args, "--draft", input.draft);
+			if (input.reviewers?.length) args.push("--required-reviewers", ...input.reviewers);
+			if (input.optionalReviewers?.length) args.push("--optional-reviewers", ...input.optionalReviewers);
+			return args;
+		}
+		case "pr_update": {
+			const args = ["repos", "pr", "update", "--id", String(positiveInteger(input.pullRequestId, "pullRequestId")), ...this.prBaseArgs(context)];
 			if (input.title === undefined && input.description === undefined && input.draft === undefined) throw new Error("pr_update requires at least one of: title, description, or draft. Read ado-pr://<pullRequestId> to inspect the current PR state before updating.");
-				addString(args, "--title", input.title);
-				addString(args, "--description", input.description);
-				addBoolean(args, "--draft", input.draft);
-				return args;
-			}
-			case "pr_set_auto_complete":
-				if (input.autoComplete === undefined) throw new Error("pr_set_auto_complete requires autoComplete.");
-				return ["repos", "pr", "update", "--id", String(positiveInteger(input.pullRequestId, "pullRequestId")), "--auto-complete", String(input.autoComplete), ...base];
-			case "pr_vote":
-				return ["repos", "pr", "set-vote", "--id", String(positiveInteger(input.pullRequestId, "pullRequestId")), "--vote", requireNonBlank(input.vote, "vote"), ...base];
-			case "pr_abandon":
-				return ["repos", "pr", "update", "--id", String(positiveInteger(input.pullRequestId, "pullRequestId")), "--status", "abandoned", ...base];
-			case "pr_complete": {
-				if (input.confirm !== true) throw new Error("pr_complete requires confirm: true.");
-				if (input.bypassPolicy && !input.bypassPolicyReason?.trim()) throw new Error("bypassPolicyReason is required when bypassPolicy is true.");
-				const args = ["repos", "pr", "update", "--id", String(positiveInteger(input.pullRequestId, "pullRequestId")), "--status", "completed", "--squash", "true", ...base];
-				addBoolean(args, "--delete-source-branch", input.deleteSourceBranch);
-				addString(args, "--merge-commit-message", input.mergeCommitMessage);
-				addBoolean(args, "--bypass-policy", input.bypassPolicy);
-				addString(args, "--bypass-policy-reason", input.bypassPolicyReason);
-				return args;
-			}
+			addString(args, "--title", input.title);
+			addString(args, "--description", input.description);
+			addBoolean(args, "--draft", input.draft);
+			return args;
+		}
+		case "pr_set_auto_complete":
+			if (input.autoComplete === undefined) throw new Error("pr_set_auto_complete requires autoComplete.");
+			return ["repos", "pr", "update", "--id", String(positiveInteger(input.pullRequestId, "pullRequestId")), "--auto-complete", String(input.autoComplete), ...this.prBaseArgs(context)];
+		case "pr_vote":
+			return ["repos", "pr", "set-vote", "--id", String(positiveInteger(input.pullRequestId, "pullRequestId")), "--vote", requireNonBlank(input.vote, "vote"), ...this.prBaseArgs(context)];
+		case "pr_abandon":
+			return ["repos", "pr", "update", "--id", String(positiveInteger(input.pullRequestId, "pullRequestId")), "--status", "abandoned", ...this.prBaseArgs(context)];
+		case "pr_complete": {
+			if (input.confirm !== true) throw new Error("pr_complete requires confirm: true.");
+			if (input.bypassPolicy && !input.bypassPolicyReason?.trim()) throw new Error("bypassPolicyReason is required when bypassPolicy is true.");
+			const args = ["repos", "pr", "update", "--id", String(positiveInteger(input.pullRequestId, "pullRequestId")), "--status", "completed", "--squash", "true", ...this.prBaseArgs(context)];
+			addBoolean(args, "--delete-source-branch", input.deleteSourceBranch);
+			addString(args, "--merge-commit-message", input.mergeCommitMessage);
+			addBoolean(args, "--bypass-policy", input.bypassPolicy);
+			addString(args, "--bypass-policy-reason", input.bypassPolicyReason);
+			return args;
+		}
 			case "pr_thread_create":
 			case "pr_thread_reply":
 			case "pr_thread_update_status":

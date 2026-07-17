@@ -49,7 +49,21 @@ describe("AdoToolDispatcher", () => {
 		await dispatcher.execute({ op: "pr_vote", pullRequestId: 42, vote: "approve" }, "/workspace");
 
 		expect(commands[0]).toEqual(["git", "config", "--get", "remote.origin.url"]);
-		expect(commands[1]).toEqual(expect.arrayContaining(["az", "repos", "pr", "set-vote", "--id", "42", "--vote", "approve", "--project", "ExampleProject"]));
+	expect(commands[1]).toEqual(expect.arrayContaining(["az", "repos", "pr", "set-vote", "--id", "42", "--vote", "approve", "--org", "https://dev.azure.com/example-org"]));
+	expect(commands[1]).not.toContain("--project");
+	});
+
+	it("does not pass --project to pr_update (az repos pr update does not accept it)", async () => {
+		const commands: string[][] = [];
+		const dispatcher = new AdoToolDispatcher(async (_command, args) => {
+			commands.push([_command, ...args]);
+			return json({});
+		});
+
+		await dispatcher.execute({ op: "pr_update", organization: "example-org", project: "ExampleProject", repository: "example-repository", pullRequestId: 33393, title: "fix: test", description: "Description" });
+
+		expect(commands[0]).toEqual(expect.arrayContaining(["az", "repos", "pr", "update", "--id", "33393", "--org", "https://dev.azure.com/example-org"]));
+		expect(commands[0]).not.toContain("--project");
 	});
 
 	it("requires confirmation before deleting a repository", async () => {
