@@ -7,10 +7,8 @@ import { AdoToolDispatcher, ADO_TOOL_OPS, type AdoToolInput } from "./ado-tool";
 /** Register immutable Azure DevOps reads and one op-dispatched mutation tool. */
 export default function adoExtension(pi: ExtensionAPI): void {
 	const router = InternalUrlRouter.instance();
-	// The router is process-global. Keep already-registered handlers so a second
-	// session or extension reload cannot replace live resource backends.
-	if (!router.getHandler("ado-pr")) router.register(new AdoPrProtocolHandler());
-	if (!router.getHandler("ado-build")) router.register(new AdoBuildProtocolHandler());
+	router.register(new AdoPrProtocolHandler());
+	router.register(new AdoBuildProtocolHandler());
 
 	const { z } = pi.zod;
 	const dispatcher = new AdoToolDispatcher();

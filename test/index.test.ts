@@ -25,19 +25,27 @@ function extensionApi(tools: string[]): never {
 afterEach(() => InternalUrlRouter.resetForTests());
 
 describe("Azure DevOps extension", () => {
-	it("registers immutable read handlers and the Azure DevOps dispatcher", () => {
+	it("replaces immutable read handlers when extensions reload", () => {
 		const tools: string[] = [];
 		adoPrExtension(extensionApi(tools));
 		const router = InternalUrlRouter.instance();
-		const pullRequestHandler = router.getHandler("ado-pr");
-		const buildHandler = router.getHandler("ado-build");
+		const firstPullRequestHandler = router.getHandler("ado-pr");
+		const firstBuildHandler = router.getHandler("ado-build");
 
-		expect(pullRequestHandler?.immutable).toBe(true);
-		expect(buildHandler?.immutable).toBe(true);
+		expect(firstPullRequestHandler?.immutable).toBe(true);
+		expect(firstBuildHandler?.immutable).toBe(true);
 		expect(tools).toEqual(["azure_devops"]);
+
 		adoPrExtension(extensionApi(tools));
-		expect(router.getHandler("ado-pr")).toBe(pullRequestHandler);
-		expect(router.getHandler("ado-build")).toBe(buildHandler);
+		const reloadedPullRequestHandler = router.getHandler("ado-pr");
+		const reloadedBuildHandler = router.getHandler("ado-build");
+
+		expect(reloadedPullRequestHandler).not.toBe(firstPullRequestHandler);
+		expect(reloadedBuildHandler).not.toBe(firstBuildHandler);
+		expect(reloadedPullRequestHandler?.immutable).toBe(true);
+		expect(reloadedBuildHandler?.immutable).toBe(true);
 		expect(tools).toEqual(["azure_devops", "azure_devops"]);
+		expect(router.getHandler("ado-pr")).toBe(reloadedPullRequestHandler);
+		expect(router.getHandler("ado-build")).toBe(reloadedBuildHandler);
 	});
 });
