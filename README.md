@@ -64,11 +64,7 @@ azure_devops(op="build_watch")
 
 ## Install
 
-The extension requires Oh My Pi `16.5.0` or later, Azure CLI, and an authenticated `azure-devops` extension.
-
-```sh
-omp install github:brutaldeluxe82/omp-azure-devops
-```
+In an agentic session, install this extension into the active Oh My Pi profile with `omp install github:brutaldeluxe82/omp-azure-devops`; it requires Oh My Pi `16.5.0` or later, Azure CLI, and an authenticated `azure-devops` extension. Restart Oh My Pi after installation so `ado-pr://`, `ado-build://`, and `azure_devops` are available.
 
 For development:
 
@@ -76,8 +72,6 @@ For development:
 omp install /absolute/path/to/omp-azure-devops
 bun test
 ```
-
-Restart Oh My Pi after installing. Resource reads and the `azure_devops` tool are then available:
 
 ```text
 read ado-pr://example-org/ExampleProject/example-repository/12345
