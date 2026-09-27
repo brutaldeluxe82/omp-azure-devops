@@ -102,7 +102,7 @@ describe("AdoPrProtocolHandler", () => {
 		expect(commands[0]).toContain("repos");
 		expect(commands[0]).toContain("show");
 		expect(commands[0]).not.toContain("--project");
-		expect(handler.immutable).toBe(true);
+		expect(handler.spec.immutable).toBe(true);
 		expect(result.content).toContain("# PR #33328: Fix RoleBinding ownership");
 		expect(result.content).toContain("ado-pr://example-org/ExampleProject/example-repository/33328/changes");
 	});

@@ -67,7 +67,7 @@ describe("AdoBuildProtocolHandler", () => {
 		const result = await handler.resolve(internalUrl("ado-build://example-org/ExampleProject/150549"));
 
 		expect(commands[0]).toEqual(expect.arrayContaining(["az", "pipelines", "build", "show", "--id", "150549"]));
-		expect(handler.immutable).toBe(true);
+		expect(handler.spec.immutable).toBe(true);
 		expect(result.content).toContain("# Build #150549: 2026.1.0.4");
 		expect(result.content).toContain("ado-build://example-org/ExampleProject/150549/timeline");
 	});

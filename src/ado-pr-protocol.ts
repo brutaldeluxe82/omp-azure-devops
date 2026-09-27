@@ -3,6 +3,7 @@ import type {
 	InternalUrl,
 	ProtocolHandler,
 	ResolveContext,
+	SchemeSpec,
 } from "@oh-my-pi/pi-coding-agent/internal-urls";
 
 const LIST_LIMIT_DEFAULT = 30;
@@ -187,7 +188,7 @@ function parseJson<T>(output: string, source: string): T {
 /** A read-only InternalUrlRouter handler backed by Azure CLI's authenticated REST client. */
 export class AdoPrProtocolHandler implements ProtocolHandler {
 	readonly scheme = "ado-pr";
-	readonly immutable = true;
+	readonly spec: SchemeSpec = { backing: "remote", selectors: "lines", immutable: true };
 
 	constructor(private readonly run: CommandRunner = bunCommandRunner) {}
 

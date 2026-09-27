@@ -32,8 +32,8 @@ describe("Azure DevOps extension", () => {
 		const firstPullRequestHandler = router.getHandler("ado-pr");
 		const firstBuildHandler = router.getHandler("ado-build");
 
-		expect(firstPullRequestHandler?.immutable).toBe(true);
-		expect(firstBuildHandler?.immutable).toBe(true);
+		expect(firstPullRequestHandler?.spec.immutable).toBe(true);
+		expect(firstBuildHandler?.spec.immutable).toBe(true);
 		expect(tools).toEqual(["azure_devops"]);
 
 		adoPrExtension(extensionApi(tools));
@@ -42,8 +42,8 @@ describe("Azure DevOps extension", () => {
 
 		expect(reloadedPullRequestHandler).not.toBe(firstPullRequestHandler);
 		expect(reloadedBuildHandler).not.toBe(firstBuildHandler);
-		expect(reloadedPullRequestHandler?.immutable).toBe(true);
-		expect(reloadedBuildHandler?.immutable).toBe(true);
+		expect(reloadedPullRequestHandler?.spec.immutable).toBe(true);
+		expect(reloadedBuildHandler?.spec.immutable).toBe(true);
 		expect(tools).toEqual(["azure_devops", "azure_devops"]);
 		expect(router.getHandler("ado-pr")).toBe(reloadedPullRequestHandler);
 		expect(router.getHandler("ado-build")).toBe(reloadedBuildHandler);

@@ -3,6 +3,7 @@ import type {
 	InternalUrl,
 	ProtocolHandler,
 	ResolveContext,
+	SchemeSpec,
 } from "@oh-my-pi/pi-coding-agent/internal-urls";
 import {
 	bunCommandRunner,
@@ -166,7 +167,7 @@ function buildUri(context: AdoBuildContext, buildId: number): string {
 /** A read-only InternalUrlRouter handler backed by Azure CLI build APIs. */
 export class AdoBuildProtocolHandler implements ProtocolHandler {
 	readonly scheme = "ado-build";
-	readonly immutable = true;
+	readonly spec: SchemeSpec = { backing: "remote", selectors: "lines", immutable: true };
 
 	constructor(private readonly run: CommandRunner = bunCommandRunner) {}
 
